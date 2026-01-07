@@ -1,0 +1,53 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('surveyor_claims', function (Blueprint $table) {
+            $table->id();
+            $table->string('claim_number')->unique();
+              $table->foreignId('claim_id')
+                  ->nullable() 
+                  ->after('id')
+                  ->constrained('claims')
+                  ->onDelete('cascade'); 
+        
+            $table->string('pt');
+            $table->foreignId('surveyor_id')->constrained('users');
+            $table->foreignId('site_id')->constrained('sites');
+            $table->foreignId('pit_id')->constrained('pits');
+            $table->tinyInteger('period_month');
+            $table->integer('period_year');
+            $table->string('job_type');
+            $table->enum('status', [
+                'draft',
+                'submitted',
+                'validated'
+            ])->default('draft');
+            $table->decimal('total_bcm', 15, 2)->default(0);
+            $table->decimal('total_amount', 15, 2)->default(0); 
+          
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('surveyor_claims', function (Blueprint $table) {
+            $table->dropForeign(['claim_id']);
+            $table->dropColumn('claim_id');
+        });
+    }
+};
+
