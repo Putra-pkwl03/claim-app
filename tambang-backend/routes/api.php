@@ -132,6 +132,8 @@ Route::middleware(['jwt.cookie', 'role:admin', 'check.status'])->prefix('sites')
     Route::post('/{site}/pits', [PitController::class, 'store']); 
     Route::get('/{site}/pits/{pit}', [PitController::class, 'show']); 
     Route::delete('/{site}/pits/{pit}', [PitController::class, 'destroy']);
+   Route::put('/{site}/pits', [PitController::class, 'update']);
+
 
 
     // block API
