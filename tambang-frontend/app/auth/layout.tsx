@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Login - Geo Claim System",
+  title: "Login - Survey Calculation Claims",
 };
 
 export default function AuthLayout({

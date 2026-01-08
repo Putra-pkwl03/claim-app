@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Survey Calculation Claim",
+  title: "Survey Calculation Claims",
   description: "Survey Calculation Dashboard",
 };
 
