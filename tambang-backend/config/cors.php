@@ -6,7 +6,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['https://scclaim.vercel.app'],
+    'allowed_origins' => ['https://scclaim.siunjaya.id'],
 
     'allowed_origins_patterns' => [],
 
