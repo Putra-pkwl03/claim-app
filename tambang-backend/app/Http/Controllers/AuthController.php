@@ -12,6 +12,75 @@ use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
+    // // Login menggunakan JWT
+    // public function login(Request $request)
+    // {
+    //     $credentials = $request->validate([
+    //         'email' => 'required|email',
+    //         'password' => 'required',
+    //     ]);
+
+    //     try {
+    //         if (!$token = JWTAuth::attempt($credentials)) {
+    //             return response()->json(['message' => 'Password Atau Email Salah!'], 401);
+    //         }
+    //     } catch (JWTException $e) {
+    //         return response()->json(['message' => 'Token Tidak Bisa Dibuat'], 500);
+    //     }
+
+    //     $user = auth()->user();
+
+    //     // Cek status user (kecuali admin misalnya)
+    //     if (!$user->hasRole('admin') && $user->status !== 'active') {
+    //         return response()->json(['message' => 'Akun belum aktif'], 403);
+    //     }
+
+    //     $cookie = cookie('auth-jwt-pcys', $token, 60, '/', null, false, true, false, 'Lax');
+
+    //     return response()->json([
+    //         'message' => 'Login Berhasil',
+    //         'status' => $user->status,
+    //         'role' => $user->getRoleNames(),
+    //     ])->cookie($cookie);
+
+    // }
+
+    // public function refreshToken(Request $request)
+    // {
+    //     try {
+    //         $token = $request->cookie('auth-jwt-pcys');
+
+    //         if (!$token) {
+    //             return response()->json(['message' => 'Token tidak ditemukan'], 401);
+    //         }
+    //         $newToken = JWTAuth::setToken($token)->refresh();
+    //         $user = JWTAuth::setToken($newToken)->toUser();
+    //         $cookie = cookie(
+    //             'auth-jwt-pcys', 
+    //             $newToken,       
+    //             60,             
+    //             '/',             
+    //             null,           
+    //             false,           
+    //             true,            
+    //             false,           
+    //             'Lax'            
+    //         );
+
+    //         return response()->json([
+    //             'message' => 'Token diperbarui',
+    //             'role' => $user->getRoleNames()
+    //         ])->cookie($cookie);
+
+    //     } catch (JWTException $e) {
+    //         return response()->json([
+    //             'message' => 'Token tidak dapat diperbarui',
+    //             'error' => $e->getMessage() 
+    //         ], 401);
+    //     }
+    // }
+
+
     // Login menggunakan JWT
     public function login(Request $request)
     {
@@ -35,14 +104,24 @@ class AuthController extends Controller
             return response()->json(['message' => 'Akun belum aktif'], 403);
         }
 
-        $cookie = cookie('auth-jwt-pcys', $token, 60, '/', null, false, true, false, 'Lax');
+        // Ganti beberapa false agar aman masuk server
+        $cookie = cookie(
+            'auth-jwt-pcys', 
+            $token, 
+            60,        // durasi 1 jam
+            '/', 
+            null, 
+            true,      // secure true untuk HTTPS
+            true,      // httpOnly
+            false,     // raw false
+            'Lax'      // samesite
+        );
 
         return response()->json([
             'message' => 'Login Berhasil',
             'status' => $user->status,
             'role' => $user->getRoleNames(),
         ])->cookie($cookie);
-
     }
 
     public function refreshToken(Request $request)
@@ -53,17 +132,19 @@ class AuthController extends Controller
             if (!$token) {
                 return response()->json(['message' => 'Token tidak ditemukan'], 401);
             }
+
             $newToken = JWTAuth::setToken($token)->refresh();
             $user = JWTAuth::setToken($newToken)->toUser();
+
             $cookie = cookie(
                 'auth-jwt-pcys', 
                 $newToken,       
-                60,             
+                60,              // durasi 1 jam
                 '/',             
-                null,           
-                false,           
-                true,            
-                false,           
+                null,            
+                true,            // secure true
+                true,            // httpOnly
+                false,           // raw false
                 'Lax'            
             );
 
@@ -79,6 +160,7 @@ class AuthController extends Controller
             ], 401);
         }
     }
+
 
     public function me(Request $request)
     {

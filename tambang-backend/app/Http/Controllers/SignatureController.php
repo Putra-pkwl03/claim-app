@@ -6,12 +6,10 @@ use Illuminate\Http\Request;
 use App\Models\ClaimSignature;
 use App\Models\SurveyorClaim;
 use App\Models\Claim;
+use Illuminate\Support\Facades\Storage;
 
 class SignatureController extends Controller
 {
-    /**
-     * Simpan TTD untuk klaim (base64 dari canvas atau upload file)
-     */
     public function store(Request $request, $claimId)
     {
         $request->validate([
@@ -22,227 +20,300 @@ class SignatureController extends Controller
 
         $claim = SurveyorClaim::findOrFail($claimId);
 
-        $signatureData = null;
+        $existing = ClaimSignature::where([
+            'claim_id' => $claim->id,
+            'user_id' => auth()->id(),
+            'role' => $request->role,
+        ])->first();
 
+        $signatureValue = null;
+
+        /* ===== FILE UPLOAD ===== */
         if ($request->hasFile('signature_file')) {
-            $file = $request->file('signature_file');
-            $path = $file->store('signatures', 'public');
-            $signatureData = asset('storage/' . $path);
-        } elseif ($request->filled('signature_base64')) {
-            $signatureData = $request->signature_base64;
+
+            if ($existing && $existing->signature && str_starts_with($existing->signature, 'signatures/')) {
+                Storage::disk('public')->delete($existing->signature);
+            }
+
+            $signatureValue = $request
+                ->file('signature_file')
+                ->store('signatures', 'public');
+        }
+
+        /* ===== BASE64 ===== */
+        elseif ($request->filled('signature_base64')) {
+
+            $base64 = explode(',', $request->signature_base64);
+
+            if (count($base64) !== 2 || empty($base64[1])) {
+                return response()->json(['message' => 'TTD kosong'], 422);
+            }
+
+            $signatureValue = $request->signature_base64;
         } else {
             return response()->json(['message' => 'TTD tidak diberikan'], 422);
         }
 
-        ClaimSignature::updateOrCreate(
+        $signature = ClaimSignature::updateOrCreate(
             [
                 'claim_id' => $claim->id,
                 'user_id' => auth()->id(),
                 'role' => $request->role,
             ],
             [
-                'signature' => $signatureData
+                'signature' => $signatureValue,
             ]
         );
 
         return response()->json([
             'message' => "TTD {$request->role} berhasil disimpan",
             'data' => [
-                'claim_id' => $claim->id,
-                'role' => $request->role,
-                'signature' => $signatureData
+                'id' => $signature->id,
+                'role' => $signature->role,
+                'signature' => str_starts_with($signature->signature ?? '', 'signatures/')
+                    ? asset('storage/' . $signature->signature)
+                    : $signature->signature,
             ]
         ]);
     }
 
+    public function getMySignature(Request $request, $claimId)
+    {
+        $request->validate([
+            'role' => 'required|in:surveyor,managerial,finance,contractor',
+        ]);
 
-/**
- * Ambil claim milik contractor login dengan status auto_approved
- */
-public function getContractorClaims()
-{
-    $userId = auth()->id(); 
+        $signature = ClaimSignature::where([
+            'claim_id' => $claimId,
+            'user_id' => auth()->id(),
+            'role' => $request->role,
+        ])->first();
 
-    $claims = Claim::where('contractor_id', $userId)
-        ->where('status', 'auto_approved')
-        ->with([
+        if (!$signature) {
+            return response()->json([
+                'data' => null
+            ]);
+        }
+
+        return response()->json([
+            'data' => [
+                'id' => $signature->id,
+                'role' => $signature->role,
+                'signature_url' => str_starts_with($signature->signature ?? '', 'signatures/')
+                    ? asset('storage/' . $signature->signature)
+                    : null,
+                'signature_base64' => !str_starts_with($signature->signature ?? '', 'signatures/')
+                    ? $signature->signature
+                    : null,
+            ]
+        ]);
+    }
+
+    /**
+     * Ambil claim milik contractor login dengan status auto_approved
+     */
+    public function getContractorClaims()
+    {
+        $userId = auth()->id(); 
+
+        $claims = Claim::where('contractor_id', $userId)
+            ->whereIn('status', ['auto_approved', 'approved_managerial', 'approved_finance'])
+            ->with([
+                'site:id,name,no_site',
+                'blocks.block:id,name,pit_id',
+                'blocks.block.pit:id,name,no_pit',
+            ])
+            ->get();
+
+        $data = $claims->map(function ($claim) {
+            return [
+                'claim_id' => $claim->id,
+                'status' => $claim->status,
+                'claim_number' => $claim->claim_number,
+                'contractor' => $claim->pt,
+                'project' => $claim->site?->name,
+                'period_month' => $claim->period_month,
+                'period_year' => $claim->period_year,
+                'grand_total_bcm' => $claim->blocks->sum('bcm'),
+            ];
+        });
+
+        return response()->json($data);
+    }
+
+    public function getClaimWithSignatures($claimId)
+    {
+        // Ambil claim dari tabel claims
+        $claim = Claim::with([
             'site:id,name,no_site',
             'blocks.block:id,name,pit_id',
             'blocks.block.pit:id,name,no_pit',
-        ])
-        ->get();
+            'surveyorClaims' 
+        ])->findOrFail($claimId);
 
-    $data = $claims->map(function ($claim) {
-        return [
-            'claim_id' => $claim->id,
-            'status' => $claim->status,
+        $surveyorClaim = $claim->surveyorClaims()
+            ->with('signatures.user:id,name') 
+            ->latest('created_at')
+            ->first();
+
+        // Ambil signature per role
+        $signatures = $surveyorClaim?->signatures->mapWithKeys(function ($sig) {
+            $signatureBase64 = null;
+
+            if ($sig->signature) {
+                if (str_starts_with($sig->signature, 'signatures/')) {
+                    $path = storage_path('app/public/' . $sig->signature); // path file asli
+                    if (file_exists($path)) {
+                        $type = pathinfo($path, PATHINFO_EXTENSION); // jpg/png
+                        $data = file_get_contents($path);
+                        $signatureBase64 = 'data:image/' . $type . ';base64,' . base64_encode($data);
+                    }
+                } else {
+                    $signatureBase64 = $sig->signature; // sudah base64
+                }
+            }
+
+            return [$sig->role => [
+                'user_id' => $sig->user_id,
+                'user_name' => $sig->user?->name,
+                'signature' => $signatureBase64
+            ]];
+        }) ?? [];
+
+        // Client PT dari SurveyorClaim
+        $clientName = $surveyorClaim?->pt ?? null;
+
+        // Contractor PT dari Claim
+        $contractorName = $claim->pt;
+
+        // Rinci volume per PIT dan block (gunakan BCM dari Claim)
+        $pits = $claim->blocks
+            ->groupBy(fn($b) => $b->block->pit_id)
+            ->map(function ($blocks) {
+                $pit = $blocks->first()->block->pit;
+                $blocksData = $blocks->map(function ($b) {
+                    return [
+                        'block_name' => $b->block->name,
+                        'job_type' => $b->job_type ?? 'OB',
+                        'bcm_contractor' => $b->bcm,
+                        'amount_contractor' => $b->amount,
+                        'date' => optional($b->date)->format('d/m/Y'),
+                        'note' => $b->note,
+                        'materials' => $b->materials,
+                    ];
+                });
+
+                return [
+                    'pit_name' => $pit->name,
+                    'pit_no' => $pit->no_pit,
+                    'blocks' => $blocksData,
+                    'total_bcm_per_pit' => $blocks->sum('bcm'),
+                ];
+            });
+
+        $grandTotal = $claim->blocks->sum('bcm');
+
+        return response()->json([
             'claim_number' => $claim->claim_number,
-            'contractor' =>$claim->pt,
+            'client' => $clientName,          // SurveyorClaim.pt
+            'contractor' => $contractorName,   // Claim.pt
             'project' => $claim->site?->name,
             'period_month' => $claim->period_month,
             'period_year' => $claim->period_year,
-            'grand_total_bcm' => $claim->blocks->sum('bcm'),
-        ];
-    });
-
-    return response()->json($data);
-}
-
-
-
-public function getClaimWithSignatures($claimId)
-{
-    \Log::info("=== DEBUG: Claim Ditemukan ===");
-
-    // Ambil claim dari tabel claims
-    $claim = Claim::with([
-        'site:id,name,no_site',
-        'blocks.block:id,name,pit_id',
-        'blocks.block.pit:id,name,no_pit',
-        'surveyorClaims' 
-    ])->findOrFail($claimId);
-
-    \Log::info($claim->toArray());
-
-    $surveyorClaim = $claim->surveyorClaims()
-        ->with('signatures.user:id,name') 
-        ->latest('created_at')
-        ->first();
-
-    if (!$surveyorClaim) {
-        \Log::warning("Tidak ditemukan SurveyorClaim untuk claim ID {$claimId}");
-    } else {
-        \Log::info("=== DEBUG: SurveyorClaim Terbaru ===");
-        \Log::info($surveyorClaim->toArray());
+            'pits' => $pits,
+            'grand_total_bcm' => $grandTotal,
+            'signatures' => $signatures,
+        ]);
     }
 
-    // Ambil signature per role
-    $signatures = $surveyorClaim?->signatures->mapWithKeys(function ($sig) {
-        return [$sig->role => [
-            'user_id' => $sig->user_id,
-            'user_name' => $sig->user?->name,
-            'signature' => $sig->signature
-        ]];
-    }) ?? [];
+    /**
+     * Ambil detail satu claim lengkap untuk contractor login
+     */
+    public function getContractorClaimDetail($claimId)
+    {
+        $userId = auth()->id(); // pastikan hanya contractor sendiri yang bisa akses
 
-    // Client PT dari SurveyorClaim
-    $clientName = $surveyorClaim?->pt ?? null;
+        $claim = Claim::where('id', $claimId)
+            ->where('contractor_id', $userId) // batasi sesuai contractor login
+            ->with([
+                'site:id,name,no_site',
+                'blocks.block:id,name,pit_id',
+                'blocks.block.pit:id,name,no_pit',
+                'surveyorClaims.signatures.user', // ambil TTD
+            ])
+            ->firstOrFail();
 
-    // Contractor PT dari Claim
-    $contractorName = $claim->pt;
+        // Struktur data sesuai PDF
+        $pits = $claim->blocks
+            ->groupBy(fn($b) => $b->block->pit_id)
+            ->map(function ($blocks) {
+                $pit = $blocks->first()->block->pit;
 
-    // Rinci volume per PIT dan block (gunakan BCM dari Claim)
-    $pits = $claim->blocks
-        ->groupBy(fn($b) => $b->block->pit_id)
-        ->map(function ($blocks) {
-            $pit = $blocks->first()->block->pit;
-            $blocksData = $blocks->map(function ($b) {
+                $blocksData = $blocks->map(function ($b) {
+                    return [
+                        'block_name' => $b->block->name,
+                        'job_type' => $b->job_type ?? 'OB',
+                        'bcm_contractor' => $b->bcm,
+                        'amount_contractor' => $b->amount,
+                        'date' => optional($b->date)->format('d/m/Y'),
+                        'note' => $b->note,
+                        // Ambil material langsung dari kolom, bisa lebih dari satu pisahkan dengan koma
+                        'materials' => $b->material 
+                            ? array_map(fn($m) => ['material_name' => trim($m)], explode(',', $b->material)) 
+                            : [],
+                    ];
+                });
+
                 return [
-                    'block_name' => $b->block->name,
-                    'job_type' => $b->job_type ?? 'OB',
-                    'bcm_contractor' => $b->bcm,
-                    'amount_contractor' => $b->amount,
-                    'date' => optional($b->date)->format('d/m/Y'),
-                    'note' => $b->note,
-                    'materials' => $b->materials,
+                    'pit_name' => $pit->name,
+                    'pit_no' => $pit->no_pit,
+                    'blocks' => $blocksData,
+                    'total_bcm_per_pit' => $blocks->sum('bcm'),
                 ];
             });
 
-            return [
-                'pit_name' => $pit->name,
-                'pit_no' => $pit->no_pit,
-                'blocks' => $blocksData,
-                'total_bcm_per_pit' => $blocks->sum('bcm'),
-            ];
-        });
+        $grandTotal = $claim->blocks->sum('bcm');
 
-    $grandTotal = $claim->blocks->sum('bcm');
+        // Ambil SurveyorClaim terbaru untuk client & signature
+        $surveyorClaim = $claim->surveyorClaims()->latest('created_at')->first();
+        $clientName = $surveyorClaim?->pt ?? null;
 
-    return response()->json([
-        'claim_number' => $claim->claim_number,
-        'client' => $clientName,          // SurveyorClaim.pt
-        'contractor' => $contractorName,   // Claim.pt
-        'project' => $claim->site?->name,
-        'period_month' => $claim->period_month,
-        'period_year' => $claim->period_year,
-        'pits' => $pits,
-        'grand_total_bcm' => $grandTotal,
-        'signatures' => $signatures,
-    ]);
-}
+        $signatures = $surveyorClaim?->signatures->mapWithKeys(function ($s) {
+            $signatureBase64 = null;
 
-/**
- * Ambil detail satu claim lengkap untuk contractor login
- */
-public function getContractorClaimDetail($claimId)
-{
-    $userId = auth()->id(); // pastikan hanya contractor sendiri yang bisa akses
+            if ($s->signature) {
+                // jika file ada di folder signatures/
+                if (str_starts_with($s->signature, 'signatures/')) {
+                    $path = storage_path('app/public/' . $s->signature);
+                    if (file_exists($path)) {
+                        $type = pathinfo($path, PATHINFO_EXTENSION);
+                        $data = file_get_contents($path);
+                        $signatureBase64 = 'data:image/' . $type . ';base64,' . base64_encode($data);
+                    }
+                } else {
+                    $signatureBase64 = $s->signature; // sudah base64
+                }
+            }
 
-    $claim = Claim::where('id', $claimId)
-        ->where('contractor_id', $userId) // batasi sesuai contractor login
-        ->with([
-            'site:id,name,no_site',
-            'blocks.block:id,name,pit_id',
-            'blocks.block.pit:id,name,no_pit',
-            'surveyorClaims.signatures.user', // ambil TTD
-        ])
-        ->firstOrFail();
+            return [$s->role => [
+                'user_id' => $s->user_id,
+                'user_name' => $s->user?->name,
+                'signature' => $signatureBase64,
+            ]];
+        }) ?? [];
 
-    // Struktur data sesuai PDF
-    $pits = $claim->blocks
-        ->groupBy(fn($b) => $b->block->pit_id)
-        ->map(function ($blocks) {
-            $pit = $blocks->first()->block->pit;
-
-            $blocksData = $blocks->map(function ($b) {
-                return [
-                    'block_name' => $b->block->name,
-                    'job_type' => $b->job_type ?? 'OB',
-                    'bcm_contractor' => $b->bcm,
-                    'amount_contractor' => $b->amount,
-                    'date' => optional($b->date)->format('d/m/Y'),
-                    'note' => $b->note,
-                    // Ambil material langsung dari kolom, bisa lebih dari satu pisahkan dengan koma
-                    'materials' => $b->material 
-                        ? array_map(fn($m) => ['material_name' => trim($m)], explode(',', $b->material)) 
-                        : [],
-                ];
-            });
-
-            return [
-                'pit_name' => $pit->name,
-                'pit_no' => $pit->no_pit,
-                'blocks' => $blocksData,
-                'total_bcm_per_pit' => $blocks->sum('bcm'),
-            ];
-        });
-
-    $grandTotal = $claim->blocks->sum('bcm');
-
-    // Ambil SurveyorClaim terbaru untuk client & signature
-    $surveyorClaim = $claim->surveyorClaims()->latest('created_at')->first();
-    $clientName = $surveyorClaim?->pt ?? null;
-
-    $signatures = $surveyorClaim?->signatures->mapWithKeys(function ($s) {
-        return [$s->role => [
-            'user_id' => $s->user_id,
-            'user_name' => $s->user?->name,
-            'signature' => $s->signature,
-        ]];
-    }) ?? [];
-
-    return response()->json([
-        'claim_number' => $claim->claim_number,
-        'client' => $clientName,
-        'contractor' => $claim->pt,
-        'project' => $claim->site?->name,
-        'period_month' => $claim->period_month,
-        'period_year' => $claim->period_year,
-        'pits' => $pits,
-        'grand_total_bcm' => $grandTotal,
-        'signatures' => $signatures,
-    ]);
-}
+        return response()->json([
+            'claim_number' => $claim->claim_number,
+            'client' => $clientName,
+            'contractor' => $claim->pt,
+            'project' => $claim->site?->name,
+            'period_month' => $claim->period_month,
+            'period_year' => $claim->period_year,
+            'pits' => $pits,
+            'grand_total_bcm' => $grandTotal,
+            'signatures' => $signatures,
+        ]);
+    }
 
 
 

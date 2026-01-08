@@ -117,7 +117,7 @@ Route::middleware(['jwt.cookie','role:surveyor|managerial|finance|contractor'])
         Route::get('/contractor-claims', [SignatureController::class, 'getContractorClaims']);
         Route::get('/{claimId}', [SignatureController::class, 'getClaimWithSignatures']);
         Route::get('/contractor-claims/{claimId}/certificate', [SignatureController::class, 'getContractorClaimDetail']);
-
+        Route::get('/{claimId}/my-signature', [SignatureController::class, 'getMySignature']);
     });
 
 // SITE SETUP ROUTES (ADMIN ONLY)

@@ -69,7 +69,7 @@ class SurveyorClaim extends Model
     {
         $threshold = \App\Models\Threshold::activeThreshold();
         if (!$threshold) {
-            \Log::info("checkAutoApproveTotal(): no active threshold found");
+            // \Log::info("checkAutoApproveTotal(): no active threshold found");
             return false;
         }
 
@@ -84,14 +84,14 @@ class SurveyorClaim extends Model
 
         $result = $selisih <= $threshold->limit_value;
 
-        // debug log
-        \Log::info("=== DEBUG AUTO APPROVE TOTAL ===");
-        \Log::info("Total Surveyor BCM: {$totalSurveyorBcm}");
-        \Log::info("Total Contractor BCM: {$totalContractorBcm}");
-        \Log::info("Selisih: {$selisih}");
-        \Log::info("Threshold: {$threshold->limit_value}");
-        \Log::info("checkAutoApproveTotal(): " . ($result ? 'true' : 'false'));
-        \Log::info("===============================");
+        // // debug log
+        // \Log::info("=== DEBUG AUTO APPROVE TOTAL ===");
+        // \Log::info("Total Surveyor BCM: {$totalSurveyorBcm}");
+        // \Log::info("Total Contractor BCM: {$totalContractorBcm}");
+        // \Log::info("Selisih: {$selisih}");
+        // \Log::info("Threshold: {$threshold->limit_value}");
+        // \Log::info("checkAutoApproveTotal(): " . ($result ? 'true' : 'false'));
+        // \Log::info("===============================");
 
         return $result;
     }

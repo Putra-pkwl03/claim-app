@@ -38,6 +38,7 @@ class SurveyorClaimController extends Controller
 
                 return [
                     'id' => $claim->id,
+                       'surveyor_claim_id' => $claim->id,
                     'claim_number' => $claim->claim_number,
 
                     // site & pit
