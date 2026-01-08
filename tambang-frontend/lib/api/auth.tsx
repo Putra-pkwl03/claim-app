@@ -1,4 +1,4 @@
-// /lib/auth.ts
+// /lib/api/auth.ts
 import axios from "axios";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL;
@@ -6,7 +6,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 export const login = async (email: string, password: string) => {
   try {
     const res = await axios.post(
-      `${API_BASE}/auth/login`,
+      `${API_BASE}/api/auth/login`,
       { email, password },
       { withCredentials: true }
     );
@@ -19,7 +19,7 @@ export const login = async (email: string, password: string) => {
 export const logout = async () => {
   try {
     const res = await axios.post(
-      `${API_BASE}/auth/logout`,
+      `${API_BASE}/api/auth/logout`,
       {},
       { withCredentials: true }
     );
@@ -33,7 +33,7 @@ export const refreshToken = async () => {
   try {
 
     const res = await axios.post(
-      `${API_BASE}/auth/refresh`,
+      `${API_BASE}/api/auth/refresh`,
       {},
       { withCredentials: true } 
     );
@@ -48,7 +48,7 @@ export const refreshToken = async () => {
 
 export const me = async () => {
   try {
-    const res = await axios.get(`${API_BASE}/auth/me`, {
+    const res = await axios.get(`${API_BASE}/api/auth/me`, {
       withCredentials: true,
     });
     console.log("me response:", res.data);
@@ -62,7 +62,7 @@ export const me = async () => {
 export const updateProfile = async (formData: any) => {
   try {
     const res = await axios.put(
-      `${API_BASE}/auth/update-profile`,
+      `${API_BASE}/api/auth/update-profile`,
       formData,
       { withCredentials: true }
     );
