@@ -51,10 +51,10 @@ export const me = async () => {
     const res = await axios.get(`${API_BASE}/api/auth/me`, {
       withCredentials: true,
     });
-    console.log("me response:", res.data);
+    // console.log("me response:", res.data);
     return res.data;
   } catch (error: any) {
-    console.log("me error:", error.response?.status, error.response?.data);
+    // console.log("me error:", error.response?.status, error.response?.data);
     throw error.response?.data || { message: "Gagal mengambil data user" };
   }
 };

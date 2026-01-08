@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tambang Dashboard",
-  description: "System Dashboard",
+  title: "Survey Calculation Claim",
+  description: "Survey Calculation Dashboard",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
